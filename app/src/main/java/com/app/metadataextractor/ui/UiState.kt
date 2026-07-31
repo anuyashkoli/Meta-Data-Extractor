@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.io.File
+import android.net.Uri
+import java.io.FileOutputStream
 
 // 1. Define the possible states of your User Interface
 sealed class UiState {
@@ -73,6 +75,59 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
                         }
                     }
                 }
+            }
+        }
+    }
+
+    fun processLocalUri(uri: Uri) {
+        viewModelScope.launch {
+            _uiState.value = UiState.Loading("Reading local file...")
+
+            try {
+                // Get the application context safely from AndroidViewModel
+                val context = getApplication<Application>().applicationContext
+                val contentResolver = context.contentResolver
+
+                // 1. Determine the MIME type from the local URI
+                val mimeType = contentResolver.getType(uri)
+
+                val documentType = when (mimeType) {
+                    "application/pdf" -> DocumentType.PDF
+                    "image/jpeg", "image/png" -> DocumentType.IMAGE
+                    "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> DocumentType.WORD
+                    else -> {
+                        _uiState.value = UiState.Error("Unsupported local file type: $mimeType")
+                        return@launch
+                    }
+                }
+
+                // 2. Prepare a temporary cached file
+                val extension = when (documentType) {
+                    DocumentType.PDF -> ".pdf"
+                    DocumentType.WORD -> ".docx"
+                    DocumentType.IMAGE -> ".jpg"
+                }
+                val tempFile = File.createTempFile("local_target_", extension, context.cacheDir)
+
+                // 3. Stream the file from secure Scoped Storage to our app's private cache
+                contentResolver.openInputStream(uri)?.use { inputStream ->
+                    FileOutputStream(tempFile).use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                } ?: run {
+                    _uiState.value = UiState.Error("Could not open file stream from system.")
+                    return@launch
+                }
+
+                // 4. Send the cached file to our existing Extraction Engine
+                _uiState.value = UiState.Loading("Extracting Metadata...")
+                val metadata = extractMetadata(tempFile, documentType)
+
+                // 5. Display the results
+                _uiState.value = UiState.Success(metadata)
+
+            } catch (e: Exception) {
+                _uiState.value = UiState.Error("Failed to process local file: ${e.message}")
             }
         }
     }
