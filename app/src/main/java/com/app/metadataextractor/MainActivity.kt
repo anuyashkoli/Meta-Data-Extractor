@@ -1,51 +1,60 @@
 package com.app.metadataextractor
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
+import com.app.metadataextractor.ui.MetadataScreen
+import com.app.metadataextractor.ui.MetadataViewModel
 import com.app.metadataextractor.ui.theme.MetaDataExtractorTheme
-import androidx.activity.compose.setContent
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 
 class MainActivity : ComponentActivity() {
+
+    // Instantiate the ViewModel scoped to this Activity
+    private val viewModel: MetadataViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Initialize PDFBox-Android before any PDF parsing occurs
+
+        // Initialize PDFBox-Android
         PDFBoxResourceLoader.init(applicationContext)
-        enableEdgeToEdge()
+
+        // Check if the app was opened via a shared link
+        handleIntent(intent)
+
         setContent {
             MetaDataExtractorTheme {
-                Scaffold( modifier = Modifier.fillMaxSize() ) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    // Pass the ViewModel to your Compose Screen
+                    MetadataScreen(viewModel = viewModel)
                 }
             }
         }
     }
-}
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
+    // This catches intents if the app is already open in the background
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
 
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    MetaDataExtractorTheme {
-        Greeting("Android")
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+
+            // Check if the shared text contains a URL
+            if (sharedText != null && (sharedText.startsWith("http://") || sharedText.startsWith("https://"))) {
+                viewModel.processUrl(sharedText)
+            }
+        }
     }
 }
