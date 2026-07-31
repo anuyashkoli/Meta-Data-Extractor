@@ -12,10 +12,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.app.metadataextractor.ui.theme.MetaDataExtractorTheme
+import androidx.activity.compose.setContent
+import com.tomroush.pdfbox.android.PDFBoxResourceLoader
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Initialize PDFBox-Android before any PDF parsing occurs
+        PDFBoxResourceLoader.init(applicationContext)
         enableEdgeToEdge()
         setContent {
             MetaDataExtractorTheme {
