@@ -53,4 +53,17 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // Networking (For HTTP HEAD and GET requests)
+    implementation(libs.okhttp)
+
+    // PDF Metadata Extraction (Apache PDFBox Android Port)
+    implementation(libs.pdfbox.android)
+
+    // Word Document Metadata Extraction (Apache POI)
+    implementation(libs.poi)
+    implementation(libs.poi.ooxml)
+
+    // Image EXIF data is handled natively via AndroidX
+    implementation(libs.androidx.exifinterface)
 }
