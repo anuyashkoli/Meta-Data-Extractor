@@ -1,6 +1,6 @@
 package com.app.metadataextractor.domain
 
-import com.tomroush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDDocument
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
