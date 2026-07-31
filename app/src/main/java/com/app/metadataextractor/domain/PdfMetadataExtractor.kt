@@ -13,35 +13,37 @@ class PdfMetadataExtractor : MetadataExtractor {
         val metadataList = mutableListOf<MetadataItem>()
 
         try {
-            // 1. Load the PDF document using PdfBox. The 'use' block ensures it closes automatically to prevent memory leaks.
             PDDocument.load(file).use { document ->
-                
-                // 2. Access the document's internal metadata dictionary
                 val info = document.documentInformation
-
-                // 3. Formatter for making calendar dates human-readable
                 val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
-                // 4. Extract standard OSINT metadata points. 
-                // Using takeIf { it.isNotBlank() } ensures we don't display empty fields in the UI.
+                // --- 1. BASIC / HIGH-VALUE OSINT METADATA ---
                 info.title?.takeIf { it.isNotBlank() }?.let { metadataList.add(MetadataItem("Title", it)) }
                 info.author?.takeIf { it.isNotBlank() }?.let { metadataList.add(MetadataItem("Author", it)) }
-                info.subject?.takeIf { it.isNotBlank() }?.let { metadataList.add(MetadataItem("Subject", it)) }
                 info.creator?.takeIf { it.isNotBlank() }?.let { metadataList.add(MetadataItem("Creator Tool", it)) }
                 info.producer?.takeIf { it.isNotBlank() }?.let { metadataList.add(MetadataItem("Producer", it)) }
-                info.keywords?.takeIf { it.isNotBlank() }?.let { metadataList.add(MetadataItem("Keywords", it)) }
-
-                info.creationDate?.time?.let { date ->
-                    metadataList.add(MetadataItem("Creation Date", dateFormat.format(date)))
-                }
-                info.modificationDate?.time?.let { date ->
-                    metadataList.add(MetadataItem("Modification Date", dateFormat.format(date)))
-                }
-
-                // 5. Extract structural data
+                info.creationDate?.time?.let { metadataList.add(MetadataItem("Creation Date", dateFormat.format(it))) }
+                info.modificationDate?.time?.let { metadataList.add(MetadataItem("Modification Date", dateFormat.format(it))) }
                 metadataList.add(MetadataItem("Page Count", document.numberOfPages.toString()))
-                metadataList.add(MetadataItem("PDF Version", document.version.toString()))
-                metadataList.add(MetadataItem("Encrypted", document.isEncrypted.toString()))
+
+                // --- 2. ADVANCED / RAW COS DICTIONARY DUMP ---
+                val cosDict = info.cosObject
+                val standardKeys = setOf("Title", "Author", "Subject", "Creator", "Producer", "CreationDate", "ModDate", "Keywords")
+
+                for (cosName in cosDict.keySet()) {
+                    val keyName = cosName.name
+                    // Skip keys we already handled in basic section
+                    if (!standardKeys.contains(keyName)) {
+                        val rawValue = cosDict.getString(cosName) ?: cosDict.getItem(cosName)?.toString()
+                        rawValue?.takeIf { it.isNotBlank() }?.let {
+                            metadataList.add(MetadataItem("Raw PDF Key: /$keyName", it, isAdvanced = true))
+                        }
+                    }
+                }
+
+                // Structural info as Advanced
+                metadataList.add(MetadataItem("PDF Version", document.version.toString(), isAdvanced = true))
+                metadataList.add(MetadataItem("Is Encrypted", document.isEncrypted.toString(), isAdvanced = true))
             }
         } catch (e: Exception) {
             metadataList.add(MetadataItem("Error", "Failed to parse PDF data: ${e.message}"))

@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +20,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -33,6 +35,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.app.metadataextractor.domain.MetadataItem
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 
 @Composable
 fun MetadataScreen(viewModel: MetadataViewModel) {
@@ -167,37 +174,88 @@ fun ErrorView(message: String, onRetry: () -> Unit) {
 
 @Composable
 fun SuccessView(metadata: List<MetadataItem>, onReset: () -> Unit) {
+    // Separate the metadata into basic and advanced lists
+    val basicItems = remember(metadata) { metadata.filter { !it.isAdvanced } }
+    val advancedItems = remember(metadata) { metadata.filter { it.isAdvanced } }
+
+    var isAdvancedExpanded by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Button(onClick = onReset, modifier = Modifier.fillMaxWidth()) {
-            Text("Scan Another URL")
+            Text("Scan Another File / URL")
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
 
-        // LazyColumn is Android's modern, highly efficient scrollable list
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(metadata) { item ->
+            // Render Basic Items first
+            items(basicItems) { item ->
                 MetadataCard(item)
+            }
+
+            // Render Advanced / Raw Section if advanced items exist
+            if (advancedItems.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isAdvancedExpanded = !isAdvancedExpanded },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Advanced / Raw OSINT Data (${advancedItems.size})",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Icon(
+                                imageVector = if (isAdvancedExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Toggle Advanced Data"
+                            )
+                        }
+                    }
+                }
+
+                // Collapsible items under Advanced Section
+                if (isAdvancedExpanded) {
+                    items(advancedItems) { item ->
+                        MetadataCard(item = item, isAdvanced = true)
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-fun MetadataCard(item: MetadataItem) {
+fun MetadataCard(item: MetadataItem, isAdvanced: Boolean = false) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(
+            containerColor = if (isAdvanced)
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            else
+                MaterialTheme.colorScheme.surfaceVariant
+        )
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
                 text = item.key,
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
+                color = if (isAdvanced) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
