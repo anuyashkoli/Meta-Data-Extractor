@@ -20,7 +20,7 @@ import java.util.Locale
 sealed class UiState {
     object Idle : UiState()
     data class Loading(val message: String) : UiState()
-    data class Success(val metadata: List<MetadataItem>) : UiState()
+    data class Success(val metadata: List<MetadataItem>, val file: File, val type: DocumentType) : UiState()
     data class Error(val message: String) : UiState()
 }
 
@@ -44,9 +44,9 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
     fun processUrl(url: String) {
         viewModelScope.launch {
             _uiState.value = UiState.Loading("Inspecting URL...")
-            val inspectionResult = networkInspector.inspectUrl(url)
 
-            when (inspectionResult) {
+            // Fixed: Moved variable declaration into the 'when' block
+            when (val inspectionResult = networkInspector.inspectUrl(url)) {
                 is InspectionResult.Error -> {
                     _uiState.value = UiState.Error(inspectionResult.message)
                     return@launch
@@ -57,9 +57,9 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
                 }
                 is InspectionResult.Success -> {
                     _uiState.value = UiState.Loading("Downloading secure copy...")
-                    val downloadResult = fileDownloader.downloadFile(url, inspectionResult.type)
 
-                    when (downloadResult) {
+                    // Fixed: Moved variable declaration into the 'when' block
+                    when (val downloadResult = fileDownloader.downloadFile(url, inspectionResult.type)) {
                         is DownloadResult.Error -> {
                             _uiState.value = UiState.Error(downloadResult.message)
                         }
@@ -77,7 +77,7 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
                             val basicProperties = getBasicFileProperties(downloadResult.file, originalName, extension)
 
                             // 4. Display the combined results
-                            _uiState.value = UiState.Success(basicProperties + deepMetadata)
+                            _uiState.value = UiState.Success(basicProperties + deepMetadata, downloadResult.file, inspectionResult.type)
                         }
                     }
                 }
@@ -140,9 +140,8 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
                 // 3. Get basic properties
                 val basicProperties = getBasicFileProperties(tempFile, originalName, tempFile.extension)
 
-                // 4. Display combined results
-                _uiState.value = UiState.Success(basicProperties + deepMetadata)
-
+                // 4. Display combined results (Fixed: Using tempFile and documentType)
+                _uiState.value = UiState.Success(basicProperties + deepMetadata, tempFile, documentType)
             } catch (e: Exception) {
                 _uiState.value = UiState.Error("Failed to process local file: ${e.message}")
             }

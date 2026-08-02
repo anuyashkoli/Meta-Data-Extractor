@@ -51,6 +51,27 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.filled.Info
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import com.app.metadataextractor.data.DocumentType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import android.content.Context
+import androidx.core.content.FileProvider
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
 
 @Composable
 fun MetadataScreen(viewModel: MetadataViewModel) {
@@ -76,7 +97,12 @@ fun MetadataScreen(viewModel: MetadataViewModel) {
             )
             is UiState.Loading -> LoadingView(message = state.message)
             is UiState.Error -> ErrorView(message = state.message, onRetry = { viewModel.reset() })
-            is UiState.Success -> SuccessView(metadata = state.metadata, onReset = { viewModel.reset() })
+            is UiState.Success -> SuccessView(
+                metadata = state.metadata,
+                file = state.file,
+                type = state.type,
+                onReset = { viewModel.reset() }
+            )
         }
     }
 }
@@ -184,7 +210,12 @@ fun ErrorView(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-fun SuccessView(metadata: List<MetadataItem>, onReset: () -> Unit) {
+fun SuccessView(
+    metadata: List<MetadataItem>,
+    file: File,
+    type: DocumentType,
+    onReset: () -> Unit
+) {
     // Separate metadata into basic and advanced lists
     val basicItems = remember(metadata) { metadata.filter { !it.isAdvanced } }
     val advancedItems = remember(metadata) { metadata.filter { it.isAdvanced } }
@@ -209,6 +240,12 @@ fun SuccessView(metadata: List<MetadataItem>, onReset: () -> Unit) {
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+
+            item {
+                FilePreviewHeader(file = file, type = type)
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             // 1. Render Basic Filesystem Items (Name, Extension, Size, + any basic metadata)
             items(basicItems) { item ->
                 MetadataCard(item)
@@ -370,5 +407,115 @@ fun MetadataCard(item: MetadataItem, isAdvanced: Boolean = false) {
                 }
             }
         }
+    }
+}
+
+@Composable
+fun FilePreviewHeader(file: File, type: DocumentType) {
+    val context = LocalContext.current
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentHeight() // Responsive: wraps to the image's height
+            .heightIn(min = 100.dp, max = 400.dp) // Ensures it doesn't take up the whole screen
+            .clickable { openFileWithSystemApp(context, file, type) }, // Makes it clickable
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth().wrapContentHeight(),
+            contentAlignment = Alignment.Center
+        ) {
+            when (type) {
+                DocumentType.IMAGE -> {
+                    AsyncImage(
+                        model = file,
+                        contentDescription = "Image Preview",
+                        contentScale = ContentScale.Fit, // Responsive: Fits the image without cropping
+                        modifier = Modifier.fillMaxWidth().wrapContentHeight()
+                    )
+                }
+                DocumentType.WORD -> {
+                    // Give Word docs some padding since it's just an icon
+                    Box(modifier = Modifier.padding(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = "Word Document",
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                DocumentType.PDF -> {
+                    var pdfBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+                    LaunchedEffect(file) {
+                        withContext(Dispatchers.IO) {
+                            try {
+                                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                                    PdfRenderer(pfd).use { renderer ->
+                                        if (renderer.pageCount > 0) {
+                                            renderer.openPage(0).use { page ->
+                                                val width = 800
+                                                val height = (width.toFloat() / page.width * page.height).toInt()
+                                                val renderBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                                                val canvas = Canvas(renderBitmap)
+                                                canvas.drawColor(Color.WHITE)
+                                                page.render(renderBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                                pdfBitmap = renderBitmap
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (_: Exception) { }
+                        }
+                    }
+
+                    if (pdfBitmap != null) {
+                        Image(
+                            bitmap = pdfBitmap!!.asImageBitmap(),
+                            contentDescription = "PDF Preview",
+                            contentScale = ContentScale.FillWidth, // Responsive: fills width, adjusts height
+                            modifier = Modifier.fillMaxWidth().wrapContentHeight()
+                        )
+                    } else {
+                        Box(modifier = Modifier.padding(32.dp)) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Intent Helper Function
+fun openFileWithSystemApp(context: Context, file: File, type: DocumentType) {
+    try {
+        // Generate the secure URI via FileProvider
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+
+        // Map your internal types to official MIME types
+        val mimeType = when (type) {
+            DocumentType.PDF -> "application/pdf"
+            DocumentType.WORD -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            DocumentType.IMAGE -> "image/*"
+        }
+
+        // Fire the intent
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) // Grant temporary read access
+        }
+
+        // Use createChooser so the user can select their preferred app
+        context.startActivity(Intent.createChooser(intent, "Open File"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "No app found to open this file.", Toast.LENGTH_SHORT).show()
     }
 }

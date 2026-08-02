@@ -68,4 +68,6 @@ dependencies {
 
     // Image EXIF data is handled natively via AndroidX
     implementation(libs.androidx.exifinterface)
+
+    implementation(libs.coil.compose)
 }
