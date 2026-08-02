@@ -1,6 +1,9 @@
 package com.app.metadataextractor.ui
 
+import android.app.SearchManager
+import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -38,8 +41,15 @@ import com.app.metadataextractor.domain.MetadataItem
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 
 @Composable
 fun MetadataScreen(viewModel: MetadataViewModel) {
@@ -241,6 +251,12 @@ fun SuccessView(metadata: List<MetadataItem>, onReset: () -> Unit) {
 
 @Composable
 fun MetadataCard(item: MetadataItem, isAdvanced: Boolean = false) {
+    // 1. Grab the context (for starting the intent and showing Toasts)
+    val context = LocalContext.current
+
+    // 2. Grab the compose clipboard manager (Fixed reference)
+    val clipboardManager = LocalClipboardManager.current
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -251,18 +267,60 @@ fun MetadataCard(item: MetadataItem, isAdvanced: Boolean = false) {
                 MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = item.key,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (isAdvanced) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = item.value,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium
-            )
+        // Use a Row so the text is on the left and the buttons are on the right
+        Row(
+            modifier = Modifier
+                .padding(12.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Text Column takes up the remaining space (weight = 1f)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.key,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (isAdvanced) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = item.value,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            // Action Buttons Row
+            Row {
+                // Copy Button
+                IconButton(onClick = {
+                    clipboardManager.setText(AnnotatedString(item.value))
+                    Toast.makeText(context, "Copied!", Toast.LENGTH_SHORT).show()
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy to Clipboard",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Search Button
+                IconButton(onClick = {
+                    val intent = Intent(Intent.ACTION_WEB_SEARCH).apply {
+                        putExtra(SearchManager.QUERY, item.value)
+                    }
+                    try {
+                        context.startActivity(intent)
+                    } catch (_: Exception) { // Fixed: Using underscore for unused parameter
+                        Toast.makeText(context, "No search app available", Toast.LENGTH_SHORT).show()
+                    }
+                }) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search Online",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
     }
 }
