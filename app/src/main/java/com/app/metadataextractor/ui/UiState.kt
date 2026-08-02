@@ -1,6 +1,8 @@
 package com.app.metadataextractor.ui
 
 import android.app.Application
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.metadataextractor.data.*
@@ -11,8 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.io.File
-import android.net.Uri
 import java.io.FileOutputStream
+import java.util.Locale
 
 // 1. Define the possible states of your User Interface
 sealed class UiState {
@@ -36,14 +38,11 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
     // Initialize Extractors
     private val pdfExtractor = PdfMetadataExtractor()
     private val wordExtractor = WordMetadataExtractor()
-    private val imageExtractor = ImageMetadataExtractor() // We'll assume you created this based on the earlier code!
+    private val imageExtractor = ImageMetadataExtractor()
 
-    // 4. The main entry point triggered by the UI
+    // 4. The main entry point triggered by the UI (Remote URLs)
     fun processUrl(url: String) {
-        // viewModelScope ensures this runs safely and cancels if the ViewModel is destroyed
         viewModelScope.launch {
-            
-            // Phase A: Inspect
             _uiState.value = UiState.Loading("Inspecting URL...")
             val inspectionResult = networkInspector.inspectUrl(url)
 
@@ -57,7 +56,6 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
                     return@launch
                 }
                 is InspectionResult.Success -> {
-                    // Phase B: Download
                     _uiState.value = UiState.Loading("Downloading secure copy...")
                     val downloadResult = fileDownloader.downloadFile(url, inspectionResult.type)
 
@@ -66,12 +64,20 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
                             _uiState.value = UiState.Error(downloadResult.message)
                         }
                         is DownloadResult.Success -> {
-                            // Phase C: Extract
                             _uiState.value = UiState.Loading("Extracting Metadata...")
-                            val metadata = extractMetadata(downloadResult.file, inspectionResult.type)
-                            
-                            // Phase D: Display
-                            _uiState.value = UiState.Success(metadata)
+
+                            // 1. Get the deep metadata from the file
+                            val deepMetadata = extractMetadata(downloadResult.file, inspectionResult.type)
+
+                            // 2. Extract the real name from the URL
+                            val originalName = url.substringAfterLast('/').substringBefore('?')
+                            val extension = downloadResult.file.extension
+
+                            // 3. Get the basic properties
+                            val basicProperties = getBasicFileProperties(downloadResult.file, originalName, extension)
+
+                            // 4. Display the combined results
+                            _uiState.value = UiState.Success(basicProperties + deepMetadata)
                         }
                     }
                 }
@@ -79,18 +85,16 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // 5. The entry point for Local Files
     fun processLocalUri(uri: Uri) {
         viewModelScope.launch {
             _uiState.value = UiState.Loading("Reading local file...")
 
             try {
-                // Get the application context safely from AndroidViewModel
                 val context = getApplication<Application>().applicationContext
                 val contentResolver = context.contentResolver
 
-                // 1. Determine the MIME type from the local URI
                 val mimeType = contentResolver.getType(uri)
-
                 val documentType = when (mimeType) {
                     "application/pdf" -> DocumentType.PDF
                     "image/jpeg", "image/png" -> DocumentType.IMAGE
@@ -101,7 +105,6 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
 
-                // 2. Prepare a temporary cached file
                 val extension = when (documentType) {
                     DocumentType.PDF -> ".pdf"
                     DocumentType.WORD -> ".docx"
@@ -109,7 +112,6 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
                 }
                 val tempFile = File.createTempFile("local_target_", extension, context.cacheDir)
 
-                // 3. Stream the file from secure Scoped Storage to our app's private cache
                 contentResolver.openInputStream(uri)?.use { inputStream ->
                     FileOutputStream(tempFile).use { outputStream ->
                         inputStream.copyTo(outputStream)
@@ -119,12 +121,27 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
                     return@launch
                 }
 
-                // 4. Send the cached file to our existing Extraction Engine
                 _uiState.value = UiState.Loading("Extracting Metadata...")
-                val metadata = extractMetadata(tempFile, documentType)
 
-                // 5. Display the results
-                _uiState.value = UiState.Success(metadata)
+                // 1. Get deep metadata
+                val deepMetadata = extractMetadata(tempFile, documentType)
+
+                // 2. Ask Android for the real file name
+                var originalName = "Unknown File"
+                contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex != -1) {
+                            originalName = cursor.getString(nameIndex) ?: "Unknown File"
+                        }
+                    }
+                }
+
+                // 3. Get basic properties
+                val basicProperties = getBasicFileProperties(tempFile, originalName, tempFile.extension)
+
+                // 4. Display combined results
+                _uiState.value = UiState.Success(basicProperties + deepMetadata)
 
             } catch (e: Exception) {
                 _uiState.value = UiState.Error("Failed to process local file: ${e.message}")
@@ -132,7 +149,7 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // 5. The Routing Engine
+    // 6. The Routing Engine
     private suspend fun extractMetadata(file: File, type: DocumentType): List<MetadataItem> {
         return when (type) {
             DocumentType.PDF -> pdfExtractor.extract(file)
@@ -144,5 +161,29 @@ class MetadataViewModel(application: Application) : AndroidViewModel(application
     // Utility to reset the UI
     fun reset() {
         _uiState.value = UiState.Idle
+    }
+
+    // Helper 1: Formats raw bytes into KB or MB
+    private fun formatFileSize(bytes: Long): String {
+        val kb = bytes / 1024.0
+        val mb = kb / 1024.0
+        return when {
+            mb >= 1.0 -> String.format(Locale.getDefault(), "%.2f MB", mb)
+            kb >= 1.0 -> String.format(Locale.getDefault(), "%.2f KB", kb)
+            else -> "$bytes Bytes"
+        }
+    }
+
+    // Helper 2: Generates the Basic Properties list
+    private fun getBasicFileProperties(
+        file: File,
+        originalName: String,
+        extension: String
+    ): List<MetadataItem> {
+        return listOf(
+            MetadataItem("File Name", originalName),
+            MetadataItem("File Extension", extension.uppercase(Locale.getDefault())),
+            MetadataItem("File Size", formatFileSize(file.length()))
+        )
     }
 }
