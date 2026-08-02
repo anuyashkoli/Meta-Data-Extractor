@@ -38,7 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.app.metadataextractor.domain.MetadataItem
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
@@ -46,10 +45,12 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.IconButton
-import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Info
 
 @Composable
 fun MetadataScreen(viewModel: MetadataViewModel) {
@@ -184,9 +185,16 @@ fun ErrorView(message: String, onRetry: () -> Unit) {
 
 @Composable
 fun SuccessView(metadata: List<MetadataItem>, onReset: () -> Unit) {
-    // Separate the metadata into basic and advanced lists
+    // Separate metadata into basic and advanced lists
     val basicItems = remember(metadata) { metadata.filter { !it.isAdvanced } }
     val advancedItems = remember(metadata) { metadata.filter { it.isAdvanced } }
+
+    // Check if any deep/hidden metadata exists beyond the 3 basic filesystem properties
+    val hasDeepMetadata = remember(metadata) {
+        metadata.any { item ->
+            item.key != "File Name" && item.key != "File Extension" && item.key != "File Size"
+        }
+    }
 
     var isAdvancedExpanded by remember { mutableStateOf(false) }
 
@@ -201,12 +209,53 @@ fun SuccessView(metadata: List<MetadataItem>, onReset: () -> Unit) {
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Render Basic Items first
+            // 1. Render Basic Filesystem Items (Name, Extension, Size, + any basic metadata)
             items(basicItems) { item ->
                 MetadataCard(item)
             }
 
-            // Render Advanced / Raw Section if advanced items exist
+            // 2. Empty / Sanitized State Notice
+            if (!hasDeepMetadata) {
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = "Information",
+                                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text(
+                                    text = "No Hidden Metadata Detected",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "This file appears to be clean. Either no EXIF or document metadata was recorded, or the file was sanitized prior to release.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Render Advanced / Raw Section (if any advanced items exist)
             if (advancedItems.isNotEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(12.dp))
@@ -238,7 +287,6 @@ fun SuccessView(metadata: List<MetadataItem>, onReset: () -> Unit) {
                     }
                 }
 
-                // Collapsible items under Advanced Section
                 if (isAdvancedExpanded) {
                     items(advancedItems) { item ->
                         MetadataCard(item = item, isAdvanced = true)
